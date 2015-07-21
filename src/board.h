@@ -40,3 +40,5 @@
 #include "drv_led.h"
 #include "drv_lcd.h"
 #include "drv_adc.h"
+#include "drv_rotary.h"
+#include "powerfactor.h"

@@ -6,39 +6,60 @@
 
 #define ADC1_DR_Address    ((uint32_t)0x4001244C)
 __IO uint32_t ADC_DualConvertedValueTab[6];
+uint16_t __zero[6];
+volatile uint8_t __calibrating = 0;
+uint32_t __zeroSums[6];
+uint16_t __zeroCount;
 
-uint32_t ADC_hts = 0;
-uint32_t ADC_tcs = 0;
 
-uint32_t adcReadVal(uint8_t idx)
+#define CAL_SAMPLES 50000
+
+void __handleCalibration(uint16_t *values)
 {
-  if (idx & 1)
-    return ADC_DualConvertedValueTab[idx>>1] & 0xfff;
-  else
-    return (ADC_DualConvertedValueTab[idx>>1]>>16) & 0xfff;
+  int i;
+  if (__zeroCount == 0) {
+    for (i=0; i<6; i++)
+      __zeroSums[i]=values[i];
+    __zeroCount++;
+  } else if (__zeroCount >= CAL_SAMPLES) {
+    __calibrating = 0;
+    for (i=0; i<6; i++)
+      __zero[i] = __zeroSums[i] / CAL_SAMPLES;
+  } else {
+    for (i=0; i<6; i++)
+      __zeroSums[i]+=values[i];
+    __zeroCount++;
+  }
 }
 
-uint32_t adcReadHTs()
+void __processADC(bool isFull)
 {
-  return ADC_hts;
+  int i;
+  uint16_t _values[6];
+  for (i = 0; i < 3; i++) {
+    uint8_t idx = (isFull ? 3 : 0) + i;
+    _values[i * 2] = ADC_DualConvertedValueTab[idx] & 0xfff;
+    _values[i * 2 + 1] = (ADC_DualConvertedValueTab[idx]>>16) & 0xfff;
+  }
+  if (__calibrating)  {
+    __handleCalibration(_values);
+  } else {
+    for (i=0; i<6; i++)
+      _values[i]-=__zero[i];
+    handleValuesFromADC((int16_t*)_values);
+  }
 }
-
-uint32_t adcReadTCs()
-{
-  return ADC_tcs;
-}
-
 
 
 void DMA1_Channel1_IRQHandler(void)
 {
   if (DMA_GetITStatus(DMA1_IT_HT1)) {
     DMA_ClearITPendingBit(DMA1_IT_HT1);
-    ADC_hts++;
+    __processADC(0);
   }
   if (DMA_GetITStatus(DMA1_IT_TC1)) {
     DMA_ClearITPendingBit(DMA1_IT_TC1);
-    ADC_tcs++;
+    __processADC(1);
   }
 }
 
@@ -140,8 +161,18 @@ void adcInit()
 
   /* Start ADC1 Software Conversion */
   ADC_SoftwareStartConvCmd(ADC1, ENABLE);
-
-
-
 }
 
+void adcCalibrateStart()
+{
+  __zeroCount=0;
+  __calibrating=1;
+}
+
+uint8_t adcCalibrateWait()
+{
+  if (!__calibrating)
+    return 255;
+  else
+    return (uint32_t)__zeroCount * 100 / CAL_SAMPLES;
+}
