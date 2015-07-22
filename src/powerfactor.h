@@ -1,7 +1,8 @@
 #include "board.h"
 
 void handleValuesFromADC(int16_t[6]);
-uint8_t pfMeasure();
+void pfStartMeasure();
+uint8_t pfWaitMeasure();
 
 struct pfResults {
   float Upp[3];
@@ -19,5 +20,11 @@ struct pfResults {
 
   float frequency;
 };
-
 extern struct pfResults pfResults;
+
+// for debugging
+extern volatile int16_t  minU[3], maxU[3], minI[3], maxI[3];
+extern volatile int32_t  sumU[3], sumI[3], sumAbsU[3], sumAbsI[3];
+extern volatile int32_t  sumUI[3]; // integrated power (divided by 256)
+extern volatile uint32_t __samples;
+

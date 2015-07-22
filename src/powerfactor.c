@@ -24,15 +24,18 @@ volatile uint32_t measurementTime;
 volatile uint32_t __samples;
 volatile uint8_t  __state = 0;
 volatile uint16_t __cycles;
+uint32_t __start;
 
 
 struct pfResults pfResults;
 
-#define ZC_THRESHOLD -100
+#define ZC_THRESHOLD -200
 
 void handleValuesFromADC(int16_t values[6])
 {
   int i;
+  if (__state == 0)
+    return;
   if (__state == 1) {
     // wait until U is low enough
     if (values[0] < ZC_THRESHOLD) __state = 2;
@@ -71,12 +74,12 @@ void handleValuesFromADC(int16_t values[6])
 }
 
 #define NOZC_TIME 2000 // 2s
-#define TIMEOUT 5000 
+#define TIMEOUT  5000
 
-uint8_t pfMeasure()
+void pfStartMeasure()
 { // return non zero if in trouble
   int i;
-  uint32_t start = millis();
+  __start = millis();
   for (i = 0; i < 3; i++) {
     minU[i] = 0;
     maxU[i] = 0;
@@ -93,19 +96,31 @@ uint8_t pfMeasure()
   __state = 1;
 
   delay(100);
-
   if ((__state == 1) || (__state == 2)) {
     __state = 6; // sample without ZC
-    start = millis();
-    while (((millis() - start) < NOZC_TIME));
-    __state = 0;
-    pfResults.frequency = 0;
+    __start = millis();
+  }
+}
+
+uint8_t pfWaitMeasure()
+{
+  int i;
+  if (__state == 6) {
+    if ((millis() - __start) < NOZC_TIME) {
+      return 1; // still sampling
+    } else {
+      __state = 0;
+      pfResults.frequency = 0;
+    }
   } else {
     // sampling with ZC detection
-    while (__state && ((millis() - start) < TIMEOUT));
-    if (__state) {
-      __state = 0;
-      return 1;
+    if  (__state && ((millis() - __start) < TIMEOUT)) {
+      return 1; // still sampling
+    } else {
+      if (__state) {
+        __state = 0;
+        return 2; // error
+      }
     }
     pfResults.frequency = 1000000.0 * (float) CYCLES / (float)measurementTime;
   }
@@ -116,11 +131,11 @@ uint8_t pfMeasure()
     pfResults.Upp[i] = (float)(maxU[i] - minU[i]) * USCALE;
     pfResults.Ipp[i] = (float)(maxI[i] - minI[i]) * USCALE;
 
-    pfResults.Urms[i] = (float)(sumAbsU[i]) / __samples * USCALE;
-    pfResults.Irms[i] = (float)(sumAbsI[i]) / __samples * ISCALE;
+    pfResults.Urms[i] = (float)(sumAbsU[i]) / (float)__samples * USCALE;
+    pfResults.Irms[i] = (float)(sumAbsI[i]) / (float)__samples * ISCALE;
 
     pfResults.powerW[i] = pfResults.Urms[i] * pfResults.Irms[i];
-    pfResults.powerVA[i] = (float)sumUI[i] / __samples * 256.0 * USCALE * ISCALE;
+    pfResults.powerVA[i] = (float)sumUI[i] / (float)__samples * 256.0 * USCALE * ISCALE;
     pfResults.powerFactor[i] = pfResults.powerVA[i] / pfResults.powerW[i];
     pfResults.powerTotalW += pfResults.powerW[i];
     pfResults.powerTotalVA += pfResults.powerVA[i];
